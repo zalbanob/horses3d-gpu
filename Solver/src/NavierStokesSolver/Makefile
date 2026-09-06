@@ -36,6 +36,7 @@ OBJS_HORSES_BUILD=$(foreach obj,$(OBJS_HORSES),./build/$(obj).o)
 -include ./make.deps
 
 ./build/main.o: FORCE
+./build/SpatialDiscretization.o: split_template.inc
 
 
 ##########################################################
