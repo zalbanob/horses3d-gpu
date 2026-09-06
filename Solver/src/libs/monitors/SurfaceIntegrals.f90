@@ -327,7 +327,7 @@ module SurfaceIntegrals
 #ifdef _OPENACC
 !$acc parallel loop gang present(mesh) num_gangs(mesh % zones(zoneID) % no_of_faces) reduction(+:valx, valy, valz)
 #else
-!$omp parallel do private(fID,localVal,localx,localy,localz) reduction(+:valx, valy, valz) schedule(runtime)
+!$omp parallel do private(fID,i,j,p,tau,localVal,localx,localy,localz) reduction(+:valx, valy, valz) schedule(runtime)
 #endif
          do zonefID = 1, mesh % zones(zoneID) % no_of_faces
             !

@@ -98,6 +98,19 @@ module VolumeIntegrals
 !        Initialization
 !        --------------
          val = 0.0_RP
+#if defined(_OPENACC) && defined(NAVIERSTOKES) && (!(SPALARTALMARAS))
+         select case (integralType)
+         case (KINETIC_ENERGY_RATE, KINETIC_ENERGY_BALANCE, ENTROPY_RATE, ENTROPY_BALANCE)
+            !$acc wait
+            do eID = 1, mesh % no_of_elements
+               !$acc update self(mesh % elements(eID) % storage % Q, mesh % elements(eID) % storage % QDot) if_present
+               if (integralType == KINETIC_ENERGY_BALANCE .or. integralType == ENTROPY_BALANCE) then
+                  !$acc update self(mesh % elements(eID) % storage % U_x, mesh % elements(eID) % storage % U_y, &
+                  !$acc& mesh % elements(eID) % storage % U_z, mesh % elements(eID) % storage % mu_ns) if_present
+               end if
+            end do
+         end select
+#endif
 !
 !        Loop the mesh
 !        -------------
@@ -744,7 +757,7 @@ module VolumeIntegrals
 #ifdef _OPENACC
 !$acc parallel loop gang present(mesh) num_gangs(9700) reduction(+:val1,val2,val3,val4,val5)
 #else
-!$omp parallel do reduction(+:val1,val2,val3,val4,val5) private(val) schedule(guided)
+!$omp parallel do reduction(+:val1,val2,val3,val4,val5) private(val,i,j,k,local1,local2,local3,local4,local5) schedule(guided)
 #endif
          do eID = 1, mesh % no_of_elements
 !
