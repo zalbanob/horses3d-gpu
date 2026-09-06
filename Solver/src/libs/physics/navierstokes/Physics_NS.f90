@@ -432,6 +432,7 @@
       end subroutine ViscousFlux_ENERGY
 
       pure subroutine GuermondPopovFlux_ENTROPY(nEqn, nGradEqn, Q, Q_x, Q_y, Q_z, mu, beta, kappa, F)
+         !$acc routine seq
 !
 !        //////////////////////////////////////////////////////////////////////////////
 !

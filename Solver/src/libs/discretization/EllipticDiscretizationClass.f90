@@ -137,6 +137,7 @@ module EllipticDiscretizationClass
 !        *****************************************************
 !           
          use HexMeshClass
+         use ElementClass, only: HexElement_ComputeLocalGradient
          use PhysicsStorage
          use Physics
          implicit none
@@ -153,6 +154,10 @@ module EllipticDiscretizationClass
 !
          integer  :: eID
          logical  :: set_mu
+#ifdef NAVIERSTOKES
+         integer :: i, j, k
+         real(RP), allocatable :: U(:,:,:,:)
+#endif
 
 #ifdef MULTIPHASE
          select case (self % eqName)
@@ -167,9 +172,18 @@ module EllipticDiscretizationClass
 
 !$omp do schedule(runtime)
          do eID = 1 , size(mesh % elements)
-         !   call mesh % elements(eID) % ComputeLocalGradient(nEqn, nGradEqn, set_mu)
+#ifdef NAVIERSTOKES
+            associate(e => mesh % elements(eID))
+            allocate(U(nGradEqn,0:e % Nxyz(1),0:e % Nxyz(2),0:e % Nxyz(3)))
+            do k = 0, e % Nxyz(3); do j = 0, e % Nxyz(2); do i = 0, e % Nxyz(1)
+               call GetGradients(nEqn, nGradEqn, e % storage % Q(:,i,j,k), U(:,i,j,k))
+            end do; end do; end do
+            call HexElement_ComputeLocalGradient(e, nEqn, nGradEqn, U)
+            deallocate(U)
+            end associate
+#endif
          end do
-!$omp end do nowait
+!$omp end do
 
       end subroutine BaseClass_ComputeGradient
 

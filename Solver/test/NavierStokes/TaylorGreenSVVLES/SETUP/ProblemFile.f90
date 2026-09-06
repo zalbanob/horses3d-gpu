@@ -547,11 +547,11 @@ end module ProblemFileFunctions
             real(kind=RP), parameter           :: kinEn = 0.12499999968280391_RP
             real(kind=RP), parameter           :: kinEnRate = -7.6138351130710094e-8_RP
             real(kind=RP), parameter           :: SVVdiss = 7.7873340678919037e-8_RP
-            real(kind=RP), parameter           :: res(5) = [ 9.768839029729e-5_RP,   &
-                                                             0.127069145556453_RP,   &
-                                                             0.127055963394165_RP,   &
-                                                             0.250048505485785_RP,   &
-                                                             0.628947793858187_RP    ]
+            real(kind=RP), parameter           :: res(5) = [ 9.6089299329444390e-5_RP, &
+                                                             0.12704234777208420_RP, &
+                                                             0.12704234731590297_RP, &
+                                                             0.25000646761086553_RP, &
+                                                             0.62824891373195024_RP  ]
 
 
             call initializeSharedAssertionsManager

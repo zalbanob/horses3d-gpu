@@ -351,7 +351,11 @@ module SCsensorClass
       end do
 !$omp end parallel do
 
-      call sensor % TEestim % coarseSem % mesh % pAdapt(N, controlVariables)
+      if (MPI_Process % doMPIAction) then
+         call sensor % TEestim % coarseSem % mesh % pAdapt_MPI(N, controlVariables)
+      else
+         call sensor % TEestim % coarseSem % mesh % pAdapt(N, controlVariables)
+      end if
       call sensor % TEestim % coarseSem % mesh % storage % PointStorage()
 !
 !     Update the SVV if active
@@ -359,6 +363,13 @@ module SCsensorClass
       if (SVV % enabled) then
          call SVV % UpdateFilters(sensor % TEestim % coarseSem % mesh)
       end if
+
+#ifdef _OPENACC
+      ! the truncation sensor remains on the CPU,
+      ! but its coarse time derivative uses the openacc solver path.
+      !$acc enter data copyin(sensor % TEestim % coarseSem % mesh)
+      call sensor % TEestim % coarseSem % mesh % CreateDeviceData()
+#endif
 
    end subroutine Construct_TEsensor
 !
@@ -435,6 +446,14 @@ module SCsensorClass
       type(SCsensor_t), intent(inout) :: sensor
 
 
+#ifdef _OPENACC
+      if (allocated(sensor % TEestim)) then
+         if (allocated(sensor % TEestim % coarseSem)) then
+            call sensor % TEestim % coarseSem % mesh % ExitDeviceData()
+         end if
+      end if
+#endif
+
       if (allocated(sensor % TEestim))      deallocate(sensor % TEestim)
       if (allocated(sensor % x))            deallocate(sensor % x)
       if (associated(sensor % Compute_Raw)) nullify(sensor % Compute_Raw)
@@ -463,6 +482,18 @@ module SCsensorClass
 !
 !     Compute the sensor
 !     ------------------
+#ifdef _OPENACC
+!     sensor routines execute on the cpu so we need to update the gpu inputs
+      call sem % mesh % UpdateHostData()
+
+!     the truncation-error sensor consumes fine-grid QDot so we need to update it
+      if (sensor % sens_type == SC_TE_ID) then
+         do eID = 1, sem % mesh % no_of_elements
+            !$acc update self(sem % mesh % elements(eID) % storage % QDot)
+         end do
+      end if
+#endif
+
       call sensor % Compute_Raw(sem, t)
 !
 !     Add 'inertia' to the scaled value
@@ -835,11 +866,29 @@ module SCsensorClass
       end do
 !$omp end parallel do
 
+#ifdef _OPENACC
+!     upload the cpu interpolated coarse sln for the openacc derivative
+      do eID = 1, csem % mesh % no_of_elements
+         !$acc update device(csem % mesh % elements(eID) % storage % Q)
+      end do
+      !$acc wait
+#endif
+
       call sensor % TEestim % TimeDerivative(csem % mesh, csem % particles, t, CTD_IGNORE_MODE)
+
+#ifdef _OPENACC
+!     download the derivative for the cpu truncation-error calc
+      if (sensor % TEestim % derivType == NON_ISOLATED_TE) then
+         !$acc wait
+         do eID = 1, csem % mesh % no_of_elements
+            !$acc update self(csem % mesh % elements(eID) % storage % QDot)
+         end do
+      end if
+#endif
 !
 !     Maximum TE computation
 !     ----------------------
-!$omp parallel do default(private) shared(sem, csem, sensor)
+!$omp parallel do default(private) shared(sem, csem, sensor, t, NodalStorage, thermodynamics, dimensionless, refValues)
       do eID = 1, sem % mesh % no_of_elements
          associate(e => sem % mesh % elements(eID), ce => csem % mesh % elements(eID))
          ! Use G_NS as temporary storage for Qdot
@@ -848,7 +897,8 @@ module SCsensorClass
          mTE = 0.0_RP
          do k = 0, ce % Nxyz(IZ) ; do j = 0, ce % Nxyz(IY) ; do i = 0, ce % Nxyz(IX)
 
-            call UserDefinedSourceTermNS(ce % geom % x, ce % storage % Q(:,i,j,k), t, S, &
+            S = 0.0_RP
+            call UserDefinedSourceTermNS(ce % geom % x(:,i,j,k), ce % storage % Q(:,i,j,k), t, S, &
                                          thermodynamics, dimensionless, refValues)
             wx = NodalStorage(ce % Nxyz(IX)) % w(i)
             wy = NodalStorage(ce % Nxyz(IY)) % w(j)
@@ -1006,6 +1056,7 @@ module SCsensorClass
       integer                :: n
       integer                :: cluster
       integer                :: nclusters
+      integer                :: pointCluster, row, component
       logical                :: with_kmeans
       real(RP)               :: u2, p
       real(RP)               :: ux(3), uy(3), uz(3)
@@ -1120,11 +1171,20 @@ module SCsensorClass
       cnt = 0
       do eID = 1, sem % mesh % no_of_elements
          e => sem % mesh % elements(eID)
+         n = product(e % Nxyz + 1)
          if (nclusters <= 1) then
             e % storage % sensor = 0.0_RP
          else
-            n = product(e % Nxyz + 1)
-            cluster = maxval(maxloc(sensor % gmm % prob(cnt+1:cnt+n,1:nclusters), dim=2))
+            cluster = 1
+            do row = cnt + 1, cnt + n
+               pointCluster = 1
+               do component = 2, nclusters
+                  if (sensor % gmm % prob(row,component) > sensor % gmm % prob(row,pointCluster)) then
+                     pointCluster = component
+                  end if
+               end do
+               cluster = max(cluster, pointCluster)
+            end do
             e % storage % sensor = real(cluster - 1, RP) / (nclusters - 1)
          end if
          cnt = cnt + n
